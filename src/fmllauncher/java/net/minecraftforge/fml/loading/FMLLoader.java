@@ -40,7 +40,9 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.lang.reflect.Field;
 import java.net.URL;
+import java.net.URLStreamHandlerFactory;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -89,8 +91,26 @@ public class FMLLoader
             LOGGER.fatal(CORE,"Found incompatible ModLauncher specification : {}, version {} from {}", modLauncherPackage.getSpecificationVersion(), modLauncherPackage.getImplementationVersion(), modLauncherPackage.getImplementationVendor());
             throw new IncompatibleEnvironmentException("Incompatible modlauncher found "+modLauncherPackage.getSpecificationVersion());
         }
+
         LOGGER.debug(CORE, "Initializing modjar URL handler");
-        URL.setURLStreamHandlerFactory(p->p.equals("modjar") ? new ModJarURLHandler() : null);
+        try {
+            final Field factoryField = URL.class.getDeclaredField("factory");
+            factoryField.setAccessible(true);
+            // Check if URLStreamHandlerFactory has already been set
+            URLStreamHandlerFactory otherFactory = (URLStreamHandlerFactory) factoryField.get(null);
+            factoryField.set(null, null);
+            URL.setURLStreamHandlerFactory(
+                p -> p.equals("modjar")
+                    ? new ModJarURLHandler()
+                    : (
+                        otherFactory != null
+                            ? otherFactory.createURLStreamHandler(p)
+                            : null
+                    )
+            );
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            e.printStackTrace();
+        }
 
         accessTransformer = (AccessTransformerService) environment.findLaunchPlugin("accesstransformer").orElseThrow(()-> {
             LOGGER.fatal(CORE,"Access Transformer library is missing, we need this to run");
